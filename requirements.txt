@@ -1,5 +1,4 @@
-python=3.8
-pytorch
+torch
 torchtext
 spacy
 transformers
