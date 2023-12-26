@@ -19,7 +19,13 @@ class JflegDataset(Dataset):
     def __getitem__(self, index):
         input = self.tokenizer(self.data.iloc[index]["input"], return_tensors="pt")
         input["input_ids"] = input["input_ids"].squeeze()
-        target = [self.tokenizer(s, return_tensors="pt", ) for s in self.data.iloc[index]["target"]]
+
+        target = list()
+        for s in self.data.iloc[index]["target"]:
+            e = self.tokenizer(s, return_tensors="pt")
+            e["input_ids"] = e["input_ids"].squeeze()
+            target.append(e)
+
         return input, target
     
     def decode(self, embedding):
