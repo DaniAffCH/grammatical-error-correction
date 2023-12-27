@@ -14,7 +14,7 @@ class SpecialToken(Enum):
 def tokenizerSetup():
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     tokenizer.add_tokens([str(t) for t in SpecialToken])
-    tokenizer.padding_side = "right"
+    tokenizer.padding_side = "left"
 
     tokenizer.pad_token = str(SpecialToken.PADDING)
     tokenizer.bos_token = str(SpecialToken.BEGIN)

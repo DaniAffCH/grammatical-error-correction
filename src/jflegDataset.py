@@ -26,6 +26,10 @@ class JflegDataset(Dataset):
         result = {key: value.squeeze() for key, value in result.items()}
         return result
 
+    def _right_shift(self, original_tensor: torch.Tensor, shift, filling_value) -> torch.Tensor:
+        head = torch.full((shift,), filling_value)
+        return torch.cat((head, original_tensor[:-shift]))
+
     def __len__(self):
         return self.data.size//2
 
@@ -37,18 +41,17 @@ class JflegDataset(Dataset):
         target_out = random.choice(target_text_list)
         target_out = self._process_sequence(target_out)
 
+        bos_token_index = torch.where(
+            target_out["input_ids"] == self.tokenizer.bos_token_id)[0]
+
+        random_shift = random.randint(1, self.max_len - bos_token_index - 1)
+
         target_in = {
-            "input_ids": target_out["input_ids"].clone(),
-            "attention_mask": target_out["attention_mask"].clone()
+            "input_ids": self._right_shift(target_out["input_ids"].clone(), random_shift,
+                                           self.tokenizer.pad_token_id),
+            "attention_mask": self._right_shift(
+                target_out["attention_mask"].clone(), random_shift, 0.)
         }
-
-        eos_token_index = torch.where(
-            target_in["input_ids"] == self.tokenizer.eos_token_id)[0]
-
-        random_mask = random.randint(1, eos_token_index)
-
-        target_in["input_ids"][random_mask:] = self.tokenizer.pad_token_id
-        target_in["attention_mask"][random_mask:] = 0.
 
         return input, target_in, target_out
 
