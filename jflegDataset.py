@@ -17,12 +17,12 @@ class JflegDataset(Dataset):
         return self.data.size
     
     def __getitem__(self, index):
-        input = self.tokenizer(self.data.iloc[index]["input"], return_tensors="pt")
+        input = self.tokenizer(self.data.iloc[index]["input"], return_tensors="pt", padding=True)
         input["input_ids"] = input["input_ids"].squeeze()
 
         target = list()
         for s in self.data.iloc[index]["target"]:
-            e = self.tokenizer(s, return_tensors="pt")
+            e = self.tokenizer(s, return_tensors="pt", padding=True)
             e["input_ids"] = e["input_ids"].squeeze()
             target.append(e)
 
