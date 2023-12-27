@@ -70,6 +70,7 @@ class S2S(nn.Module):
 
         encoded = self.transformer.encoder(
             src, src_key_padding_mask=input_mask)
+
         decoded = self.transformer.decoder(
             target, memory=encoded, tgt_key_padding_mask=target_mask)
 

@@ -1,6 +1,8 @@
 from torch.utils.data import Dataset
+import torch
 import pandas as pd
 import numpy as np
+import random
 
 
 class JflegDataset(Dataset):
@@ -32,9 +34,23 @@ class JflegDataset(Dataset):
         input = self._process_sequence(input)
 
         target_text_list = self.data.iloc[index]["target"]
-        target = [self._process_sequence(s) for s in target_text_list]
+        target_out = random.choice(target_text_list)
+        target_out = self._process_sequence(target_out)
 
-        return input, target
+        target_in = {
+            "input_ids": target_out["input_ids"].clone(),
+            "attention_mask": target_out["attention_mask"].clone()
+        }
+
+        eos_token_index = torch.where(
+            target_in["input_ids"] == self.tokenizer.eos_token_id)[0]
+
+        random_mask = random.randint(1, eos_token_index)
+
+        target_in["input_ids"][random_mask:] = self.tokenizer.pad_token_id
+        target_in["attention_mask"][random_mask:] = 0.
+
+        return input, target_in, target_out
 
     def decode(self, embedding):
         return self.tokenizer.decode(embedding, skip_special_tokens=True)
