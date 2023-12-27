@@ -6,7 +6,7 @@ import random
 
 
 class JflegDataset(Dataset):
-    def __init__(self, path, tokenizer, max_len=64) -> None:
+    def __init__(self, path, tokenizer, max_len=128) -> None:
         super().__init__()
         self.data = pd.read_csv(path)
         self.tokenizer = tokenizer
@@ -27,7 +27,7 @@ class JflegDataset(Dataset):
         return result
 
     def __len__(self):
-        return self.data.size
+        return self.data.size//2
 
     def __getitem__(self, index):
         input = self.data.iloc[index]["input"]
