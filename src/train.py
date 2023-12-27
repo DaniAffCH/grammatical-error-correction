@@ -40,6 +40,7 @@ def train(args):
                \nDevice: {device}\
                \nOptimizer: {optimizer.__class__.__name__}\
                \nCriterion: {criterion.__class__.__name__}\
+               \nLearning Rate: {args.learning_rate}\
                \nEpochs: {args.epochs}\
                \nEmbedding Size: {args.embedding_size}\
                \nPath trained model: {args.output_path}\
