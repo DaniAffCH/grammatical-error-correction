@@ -20,4 +20,4 @@ def trainOneStep(model, dataloader, optimizer, lr_scheduler, criterion, logger, 
 
         total_loss += loss.item()
 
-    logger.log(logging.INFO, total_loss/len(dataloader))
+    logger.log(logging.INFO, f"Avg loss:{total_loss/len(dataloader)}")

@@ -41,6 +41,7 @@ def train(args):
                \nOptimizer: {optimizer.__class__.__name__}\
                \nCriterion: {criterion.__class__.__name__}\
                \nLearning Rate: {args.learning_rate}\
+               \nBatch Size: {args.batch_size}\
                \nEpochs: {args.epochs}\
                \nEmbedding Size: {args.embedding_size}\
                \nPath trained model: {args.output_path}\
