@@ -1,9 +1,11 @@
 import logging
 
 
-def trainOneStep(model, dataloader, optimizer, lr_scheduler, criterion, logger, device):
+def trainOneStep(model, dataloader, optimizer, lr_scheduler, criterion, device):
     total_loss = 0
     for input, tgt_in, tgt_out in dataloader:
+        optimizer.zero_grad()
+
         out = model(input["input_ids"].to(device), tgt_in["input_ids"].to(device),
                     input["attention_mask"].to(device), tgt_in["attention_mask"].to(device))
 
@@ -13,12 +15,11 @@ def trainOneStep(model, dataloader, optimizer, lr_scheduler, criterion, logger, 
 
         # Not sure though
         loss = criterion(out, gt)
-
-        optimizer.zero_grad()
         loss.backward()
+
         optimizer.step()
         lr_scheduler.step()
 
         total_loss += loss.item()
 
-    logger.log(logging.INFO, f"Avg loss:{total_loss/len(dataloader)}")
+    return total_loss/len(dataloader)

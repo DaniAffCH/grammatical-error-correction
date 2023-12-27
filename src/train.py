@@ -31,7 +31,7 @@ def train(args):
     model = S2S(tokenizer.vocab_size + len(SpecialToken),
                 args.embedding_size).to(device)
 
-    optimizer = AdamW(model.parameters(), args.learning_rate)
+    optimizer = AdamW(model.parameters(), lr=args.learning_rate)
     lr_scheduler = StepLR(optimizer, args.epochs//10)
 
     criterion = CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
@@ -48,8 +48,10 @@ def train(args):
                \n{'-'*50}\n")
 
     for epoch in tqdm.tqdm(range(args.epochs)):
-        trainOneStep(model, dl_train, optimizer,
-                     lr_scheduler, criterion, logger, device)
+        l = trainOneStep(model, dl_train, optimizer,
+                         lr_scheduler, criterion, device)
+
+        logger.log(logging.INFO, f"Epoch:{epoch} - Avg loss:{l}")
 
 
 def setParser(parser):
