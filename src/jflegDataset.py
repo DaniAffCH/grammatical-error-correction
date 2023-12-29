@@ -56,4 +56,4 @@ class JflegDataset(Dataset):
         return input, target_in, target_out
 
     def decode(self, embedding):
-        return self.tokenizer.decode(embedding, skip_special_tokens=True)
+        return self.tokenizer.decode(embedding, skip_special_tokens=False)
