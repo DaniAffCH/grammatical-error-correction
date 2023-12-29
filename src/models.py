@@ -7,12 +7,6 @@ from torch.nn import Linear
 from torch.nn import functional as F
 
 
-def gen_trg_mask(length, device):
-    return torch.triu(
-        torch.ones(length, length, device=device) * float("-inf"), diagonal=1
-    )
-
-
 class PositionalEncoding(nn.Module):
     #  https://pytorch.org/tutorials/beginner/transformer_tutorial.html
 
@@ -55,7 +49,7 @@ class S2S(pl.LightningModule):
     def __init__(
         self,
         out_vocab_size,
-        channels=256,
+        embedding_size=256,
         dropout=0.1,
     ):
         super().__init__()
@@ -63,15 +57,20 @@ class S2S(pl.LightningModule):
         self.dropout = dropout
         self.out_vocab_size = out_vocab_size
 
-        self.embeddings = TokenEmbedding(
-            vocab_size=self.out_vocab_size, emb_size=channels
+        embeddings = TokenEmbedding(
+            vocab_size=self.out_vocab_size, emb_size=embedding_size
         )
 
-        self.pos_encoder = PositionalEncoding(
-            d_model=channels, dropout=dropout)
+        pos_encoder = PositionalEncoding(
+            d_model=embedding_size, dropout=dropout)
+
+        self.encodeEmbed = nn.Sequential(
+            embeddings,
+            pos_encoder
+        )
 
         self.transformer = torch.nn.Transformer(
-            d_model=channels,
+            d_model=embedding_size,
             nhead=4,
             num_encoder_layers=6,
             num_decoder_layers=6,
@@ -79,60 +78,36 @@ class S2S(pl.LightningModule):
             dropout=dropout,
         )
 
-        self.linear = Linear(channels, out_vocab_size)
+        self.linear = Linear(embedding_size, out_vocab_size)
 
         self.do = nn.Dropout(p=self.dropout)
 
-    def init_weights(self) -> None:
-        init_range = 0.1
-        self.embeddings.weight.data.uniform_(-init_range, init_range)
-        self.linear.bias.data.zero_()
-        self.linear.weight.data.uniform_(-init_range, init_range)
+    def preprocessInput(self, input):
+        return input["input_ids"].permute(1, 0), ~input["attention_mask"].bool()
 
-    def encode_src(self, src):
-        src_pad_mask = ~src["attention_mask"].bool()
-        src = src["input_ids"]
-        src = src.permute(1, 0)
-
-        src = self.embeddings(src)
-
-        src = self.pos_encoder(src)
-
-        src = self.transformer.encoder(src, src_key_padding_mask=src_pad_mask)
-
-        src = self.pos_encoder(src)
-
-        return src
-
-    def decode_trg(self, trg, memory):
-        trg_pad_mask = ~trg["attention_mask"].bool()
-        trg = trg["input_ids"]
-
-        trg = trg.permute(1, 0)
-
-        out_sequence_len = trg.size(0)
-
-        trg = self.embeddings(trg)
-
-        trg = self.pos_encoder(trg)
-
-        trg_mask = gen_trg_mask(out_sequence_len, trg.device)
-
-        out = self.transformer.decoder(
-            tgt=trg, memory=memory, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
+    def targetMask(self, length, device):
+        return torch.triu(
+            torch.ones(length, length, device=device) * float("-inf"), diagonal=1
         )
-
-        out = out.permute(1, 0, 2)
-
-        out = self.linear(out)
-
-        return out
 
     def forward(self, x):
         src, trg = x
 
-        src = self.encode_src(src)
+        src, src_pad_mask = self.preprocessInput(src)
+        trg, trg_pad_mask = self.preprocessInput(trg)
+        out_sequence_len = trg.size(0)
+        trg_mask = self.targetMask(out_sequence_len, trg.device)
 
-        out = self.decode_trg(trg=trg, memory=src)
+        src = self.encodeEmbed(src)
+        trg = self.encodeEmbed(trg)
+
+        src = self.transformer.encoder(src, src_key_padding_mask=src_pad_mask)
+
+        out = self.transformer.decoder(
+            tgt=trg, memory=src, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
+        )
+
+        out = out.permute(1, 0, 2)
+        out = self.linear(out)
 
         return out
