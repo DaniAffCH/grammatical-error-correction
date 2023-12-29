@@ -39,7 +39,7 @@ class TokenEmbedding(nn.Module):
 
 class S2S(nn.Module):
 
-    def __init__(self, ntoken: int, d_model: int):
+    def __init__(self, ntoken: int, d_model: int, device):
         super().__init__()
         self.model_type = 'Transformer'
         self.pos_encoder = PositionalEncoding(d_model, 0.1)
@@ -57,6 +57,7 @@ class S2S(nn.Module):
 
         self.head = nn.Linear(d_model, ntoken)
         self.sm = nn.Softmax(dim=0)
+        self.device = device
 
     def forward(self, input: Tensor, target: Tensor, input_mask: Tensor, target_mask: Tensor) -> Tensor:
         input_mask = input_mask.bool()

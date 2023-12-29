@@ -29,7 +29,7 @@ def train(args):
     dl_eval = DataLoader(ds_eval, batch_size=args.batch_size)
 
     model = S2S(tokenizer.vocab_size + len(SpecialToken),
-                args.embedding_size).to(device)
+                args.embedding_size, device).to(device)
 
     optimizer = AdamW(model.parameters(), lr=args.learning_rate)
     lr_scheduler = StepLR(optimizer, args.epochs//10)
