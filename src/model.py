@@ -68,12 +68,17 @@ class S2S(nn.Module):
         target = self.embedding(target)
         target = self.pos_encoder(target)
 
+        out_sequence_len = target.size(1)
+
+        trmask = torch.triu(torch.ones(
+            out_sequence_len, out_sequence_len, device=self.device) * float("-inf"), diagonal=1)
+
         encoded = self.transformer.encoder(
             src, src_key_padding_mask=input_mask)
 
         decoded = self.transformer.decoder(
-            target, memory=encoded, tgt_key_padding_mask=target_mask)
-        
+            target, memory=encoded, tgt_mask=trmask, tgt_key_padding_mask=target_mask)
+
         out = self.head(decoded)
 
         return self.sm(out)

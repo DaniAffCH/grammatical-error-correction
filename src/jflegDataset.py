@@ -44,14 +44,13 @@ class JflegDataset(Dataset):
         bos_token_index = torch.where(
             target_out["input_ids"] == self.tokenizer.bos_token_id)[0]
 
-        random_shift = random.randint(1, self.max_len - bos_token_index - 1)
-
         target_in = {
-            "input_ids": self._right_shift(target_out["input_ids"].clone(), random_shift,
-                                           self.tokenizer.pad_token_id),
-            "attention_mask": self._right_shift(
-                target_out["attention_mask"].clone(), random_shift, 0.)
+            "input_ids": target_out["input_ids"].clone(),
+            "attention_mask": target_out["attention_mask"].clone()
         }
+
+        target_in["input_ids"][bos_token_index] = self.tokenizer.pad_token_id
+        target_in["attention_mask"][bos_token_index] = 0.
 
         return input, target_in, target_out
 
