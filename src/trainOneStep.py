@@ -13,7 +13,7 @@ def trainOneStep(model, dataloader, optimizer, lr_scheduler, criterion, device):
         # loss = criterion(out, gt)
         loss = criterion(
             out.view(-1, out.size(-1)),
-            tgt_out["input_ids"].view(-1)
+            tgt_out["input_ids"].view(-1).to(device)
         )
         loss.backward()
 
