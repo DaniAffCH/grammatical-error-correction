@@ -34,7 +34,7 @@ def train(args):
     optimizer = AdamW(model.parameters(), lr=args.learning_rate)
     lr_scheduler = StepLR(optimizer, args.epochs//10)
 
-    criterion = NLLLoss(ignore_index=tokenizer.pad_token_id)
+    criterion = CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
     logger.log(logging.INFO, f"Training summary:\n{'-'*50}\
                \nDevice: {device}\
