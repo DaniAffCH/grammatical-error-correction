@@ -7,12 +7,6 @@ from torch.nn import Linear
 from torch.nn import functional as F
 
 
-def gen_trg_mask(length, device):
-    return torch.triu(
-        torch.ones(length, length, device=device) * float("-inf"), diagonal=1
-    )
-
-
 class PositionalEncoding(nn.Module):
     #  https://pytorch.org/tutorials/beginner/transformer_tutorial.html
 
@@ -63,12 +57,17 @@ class S2S(pl.LightningModule):
         self.dropout = dropout
         self.out_vocab_size = out_vocab_size
 
-        self.embeddings = TokenEmbedding(
+        embeddings = TokenEmbedding(
             vocab_size=self.out_vocab_size, emb_size=channels
         )
 
-        self.pos_encoder = PositionalEncoding(
+        pos_encoder = PositionalEncoding(
             d_model=channels, dropout=dropout)
+
+        self.encodeEmbed = nn.Sequential(
+            embeddings,
+            pos_encoder
+        )
 
         self.transformer = torch.nn.Transformer(
             d_model=channels,
@@ -104,35 +103,32 @@ class S2S(pl.LightningModule):
 
         return src
 
-    def decode_trg(self, trg, memory):
-        trg_pad_mask = ~trg["attention_mask"].bool()
-        trg = trg["input_ids"]
+    def preprocessInput(self, input):
+        return input["input_ids"].permute(1, 0), ~input["attention_mask"].bool()
 
-        trg = trg.permute(1, 0)
-
-        out_sequence_len = trg.size(0)
-
-        trg = self.embeddings(trg)
-
-        trg = self.pos_encoder(trg)
-
-        trg_mask = gen_trg_mask(out_sequence_len, trg.device)
-
-        out = self.transformer.decoder(
-            tgt=trg, memory=memory, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
+    def targetMask(self, length, device):
+        return torch.triu(
+            torch.ones(length, length, device=device) * float("-inf"), diagonal=1
         )
-
-        out = out.permute(1, 0, 2)
-
-        out = self.linear(out)
-
-        return out
 
     def forward(self, x):
         src, trg = x
 
-        src = self.encode_src(src)
+        src, src_pad_mask = self.preprocessInput(src)
+        trg, trg_pad_mask = self.preprocessInput(trg)
+        out_sequence_len = trg.size(0)
+        trg_mask = self.targetMask(out_sequence_len, trg.device)
 
-        out = self.decode_trg(trg=trg, memory=src)
+        src = self.encodeEmbed(src)
+        trg = self.encodeEmbed(trg)
+
+        src = self.transformer.encoder(src, src_key_padding_mask=src_pad_mask)
+
+        out = self.transformer.decoder(
+            tgt=trg, memory=src, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
+        )
+
+        out = out.permute(1, 0, 2)
+        out = self.linear(out)
 
         return out
