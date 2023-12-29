@@ -7,10 +7,14 @@ def trainOneStep(model, dataloader, optimizer, lr_scheduler, criterion, device):
         out = model(input["input_ids"].to(device), tgt_out["input_ids"].to(device),
                     input["attention_mask"].to(device), tgt_out["attention_mask"].to(device))
 
-        out = out.view(-1, out.size(2))
-        gt = tgt_out["input_ids"].contiguous().view(-1).to(device)
+        # out = out.view(-1, out.size(2))
+        # gt = tgt_out["input_ids"].contiguous().view(-1).to(device)
 
-        loss = criterion(out, gt)
+        # loss = criterion(out, gt)
+        loss = criterion(
+            out.view(-1, out.size(-1)),
+            tgt_out["input_ids"].view(-1)
+        )
         loss.backward()
 
         optimizer.step()

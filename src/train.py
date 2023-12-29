@@ -6,7 +6,7 @@ import logging
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
 from torch.optim import AdamW
-from torch.nn import CrossEntropyLoss
+from torch.nn import CrossEntropyLoss, NLLLoss
 from jflegDataset import JflegDataset
 from _utils import tokenizerSetup, SpecialToken
 from model import S2S
@@ -34,7 +34,7 @@ def train(args):
     optimizer = AdamW(model.parameters(), lr=args.learning_rate)
     lr_scheduler = StepLR(optimizer, args.epochs//10)
 
-    criterion = CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
+    criterion = NLLLoss(ignore_index=tokenizer.pad_token_id)
 
     logger.log(logging.INFO, f"Training summary:\n{'-'*50}\
                \nDevice: {device}\
