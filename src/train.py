@@ -1,57 +1,60 @@
-import torch
-import argparse
-import tqdm
 from pathlib import Path
-import logging
+
+import torch
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
 from torch.optim import AdamW
-from torch.nn import CrossEntropyLoss, NLLLoss
-from jflegDataset import JflegDataset
-from _utils import tokenizerSetup, SpecialToken
-from model import S2S
-from trainOneStep import trainOneStep
+from torch.nn import CrossEntropyLoss
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+from models import S2S
+
+import tqdm
+
+from jflegDataset import JflegDataset
+import argparse
+
+from _utils import tokenizerSetup, SpecialToken
+
+from oneStep import trainOneStep
 
 
 def train(args):
-    tokenizer = tokenizerSetup()
-    logger = logging.getLogger(__name__)
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    ds_train = JflegDataset(args.train_dataset, tokenizer)
-    ds_eval = JflegDataset(args.eval_dataset, tokenizer)
+    tokenizer = tokenizerSetup()
 
-    dl_train = DataLoader(ds_train, batch_size=args.batch_size)
-    dl_eval = DataLoader(ds_eval, batch_size=args.batch_size)
+    train_data = JflegDataset(args.train_dataset, tokenizer)
+    val_data = JflegDataset(args.eval_dataset, tokenizer)
 
-    model = S2S(tokenizer.vocab_size + len(SpecialToken),
-                args.embedding_size).to(device)
+    train_loader = DataLoader(
+        train_data,
+        batch_size=args.batch_size,
+        num_workers=10,
+        shuffle=True,
+    )
+
+    val_loader = DataLoader(
+        val_data,
+        batch_size=args.batch_size,
+        num_workers=10,
+        shuffle=True,
+    )
+
+    model = S2S(
+        out_vocab_size=tokenizer.vocab_size + len(SpecialToken),
+        dropout=0.1
+    ).to(device)
 
     optimizer = AdamW(model.parameters(), lr=args.learning_rate)
     lr_scheduler = StepLR(optimizer, args.epochs//10)
 
-    criterion = NLLLoss(ignore_index=tokenizer.pad_token_id)
-
-    logger.log(logging.INFO, f"Training summary:\n{'-'*50}\
-               \nDevice: {device}\
-               \nOptimizer: {optimizer.__class__.__name__}\
-               \nCriterion: {criterion.__class__.__name__}\
-               \nLearning Rate: {args.learning_rate}\
-               \nBatch Size: {args.batch_size}\
-               \nEpochs: {args.epochs}\
-               \nEmbedding Size: {args.embedding_size}\
-               \nPath trained model: {args.output_path}\
-               \n{'-'*50}\n")
+    criterion = CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
     for epoch in tqdm.tqdm(range(args.epochs)):
-        l = trainOneStep(model, dl_train, optimizer,
-                         lr_scheduler, criterion, device)
+        loss, acc = trainOneStep(model, train_loader, device,
+                                 optimizer, criterion, tokenizer, lr_scheduler)
 
-        logger.log(logging.INFO, f"Epoch:{epoch} - Avg loss:{l}")
+        print(f"#{epoch} {loss=} {acc=}")
 
 
 def setParser(parser):
@@ -68,7 +71,7 @@ def setParser(parser):
     parser.add_argument(
         "--embedding_size", type=int, default=768)
     parser.add_argument(
-        "--learning_rate", type=float, default=1e-3)
+        "--learning_rate", type=float, default=1e-6)
 
 
 if __name__ == "__main__":

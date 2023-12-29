@@ -1,8 +1,7 @@
 from torch.utils.data import Dataset
-import torch
 import pandas as pd
-import numpy as np
 import random
+import numpy as np
 
 
 class JflegDataset(Dataset):
@@ -23,12 +22,9 @@ class JflegDataset(Dataset):
         sequence = f"{self.tokenizer.bos_token} {sequence} {self.tokenizer.eos_token}"
         result = self.tokenizer(sequence, return_tensors="pt",
                                 padding="max_length", truncation=True, max_length=self.max_len)
+
         result = {key: value.squeeze() for key, value in result.items()}
         return result
-
-    def _right_shift(self, original_tensor: torch.Tensor, shift, filling_value) -> torch.Tensor:
-        head = torch.full((shift,), filling_value)
-        return torch.cat((head, original_tensor[:-shift]))
 
     def __len__(self):
         return self.data.size//2
@@ -41,19 +37,7 @@ class JflegDataset(Dataset):
         target_out = random.choice(target_text_list)
         target_out = self._process_sequence(target_out)
 
-        bos_token_index = torch.where(
-            target_out["input_ids"] == self.tokenizer.bos_token_id)[0]
-
-        random_shift = random.randint(1, self.max_len - bos_token_index - 1)
-
-        target_in = {
-            "input_ids": self._right_shift(target_out["input_ids"].clone(), random_shift,
-                                           self.tokenizer.pad_token_id),
-            "attention_mask": self._right_shift(
-                target_out["attention_mask"].clone(), random_shift, 0.)
-        }
-
-        return input, target_in, target_out
+        return input, target_out
 
     def decode(self, embedding):
         return self.tokenizer.decode(embedding, skip_special_tokens=False)
