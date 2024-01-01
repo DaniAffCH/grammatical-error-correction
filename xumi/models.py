@@ -113,8 +113,8 @@ class Seq2Seq(pl.LightningModule):
         self.linear.weight.data.uniform_(-init_range, init_range)
 
     def encode_src(self, src):
-        src = src.permute(1, 0)
-        src_pad_mask = create_padding_mask(src, self.pad_idx)
+        src_pad_mask = ~src["attention_mask"].bool()
+        src = src["input_ids"].permute(1, 0)
 
         src = self.embeddings(src)
 
@@ -127,11 +127,10 @@ class Seq2Seq(pl.LightningModule):
         return src
 
     def decode_trg(self, trg, memory):
-        trg = trg.permute(1, 0)
+        trg_pad_mask = ~trg["attention_mask"].bool()
+        trg = trg["input_ids"].permute(1, 0)
 
         out_sequence_len, batch_size = trg.size(0), trg.size(1)
-
-        trg_pad_mask = create_padding_mask(trg, self.pad_idx)
 
         trg = self.embeddings(trg)
 
@@ -170,19 +169,14 @@ class Seq2Seq(pl.LightningModule):
     def _step(self, batch, batch_idx, name="train"):
         src, trg = batch
 
-        trg_in, trg_out = trg["input_ids"][:, :-1], trg["input_ids"][:, 1:]
+        trg_in = {
+            "input_ids": trg["input_ids"][:, :-1],
+            "attention_mask": trg["attention_mask"][:, :-1]
+        }
 
-        # print(self.tok.decode(list(trg_in[0])))
-        # print(self.tok.decode(list(trg_out[0])))
-        # print()
-        # print(trg_out.shape)
-        # print("\n")
-        # print(trg_in[0])
-        # print("\n")
-        # print(trg_out[0])
-        # print("\n\n\n")
+        trg_out = trg["input_ids"][:, 1:]
 
-        y_hat = self((src["input_ids"], trg_in))
+        y_hat = self((src, trg_in))
 
         # print("\n\n\n")
 
@@ -193,10 +187,7 @@ class Seq2Seq(pl.LightningModule):
 
         _, predicted = torch.max(y_hat, 1)
         acc = masked_accuracy(y, predicted, pad_idx=self.pad_idx)
-
-        self.log(f"{name}_loss", loss)
-        self.log(f"{name}_acc", acc)
-
+        print(f"{loss=} {acc=}")
         return loss
 
     def configure_optimizers(self):
