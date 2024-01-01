@@ -13,13 +13,6 @@ def gen_trg_mask(length, device):
     )
 
 
-def create_padding_mask(tensor, pad_idx):
-
-    padding_mask = (tensor == pad_idx).transpose(0, 1)
-
-    return padding_mask
-
-
 def masked_accuracy(y_true: torch.Tensor, y_pred: torch.Tensor, pad_idx):
     mask = y_true != pad_idx
     y_true = torch.masked_select(y_true, mask)
@@ -68,6 +61,46 @@ class TokenEmbedding(nn.Module):
         return self.embedding(tokens.long()) * math.sqrt(self.emb_size)
 
 
+class CopyAttention(nn.Module):
+    def __init__(self, embedding_size) -> None:
+        super().__init__()
+        self.copyAtt = nn.MultiheadAttention(embedding_size, 4, 0.1)
+        self.copyAlphaLinear = nn.Linear(embedding_size, 1)
+
+    def forward(self, encoderHidden: torch.Tensor, src_tokens: torch.Tensor, encoderPaddingMask: torch.Tensor, decoderHidden: torch.Tensor, outDistribution: torch.Tensor):
+        # src, src_tokens, src_pad_mask, out, outDistribution
+        src_tokens = src_tokens.permute(1, 0)
+
+        x_copy, copy_attn = self.copyAtt(
+            query=decoderHidden,
+            key=encoderHidden,
+            value=encoderHidden,
+            key_padding_mask=encoderPaddingMask,
+            need_weights=True,
+        )
+
+        x_copy = x_copy.transpose(0, 1)
+
+        copy_alpha = torch.sigmoid(self.copyAlphaLinear(x_copy))
+
+        compositeDistribution = copy_alpha * outDistribution
+        copyDistribution = (1-copy_alpha) * copy_attn
+
+        extendedOutDistribution = torch.zeros(outDistribution.size(
+            0), outDistribution.size(1), src_tokens.size(1)).float()
+        if src_tokens.device.type == 'cuda':
+            extendedOutDistribution = extendedOutDistribution.cuda()
+        outDistribution = torch.cat(
+            [outDistribution, extendedOutDistribution], dim=-1)
+
+        src_tokens = src_tokens.unsqueeze(
+            1).repeat(1, outDistribution.size(1), 1)
+
+        compositeDistribution.scatter_add_(-1, src_tokens, copyDistribution)
+
+        return compositeDistribution
+
+
 class Seq2Seq(pl.LightningModule):
     def __init__(
         self,
@@ -88,6 +121,8 @@ class Seq2Seq(pl.LightningModule):
         self.embeddings = TokenEmbedding(
             vocab_size=self.out_vocab_size, emb_size=channels
         )
+
+        self.copying = CopyAttention(channels)
 
         self.pos_encoder = PositionalEncoding(
             d_model=channels, dropout=dropout)
@@ -151,11 +186,42 @@ class Seq2Seq(pl.LightningModule):
     def forward(self, x):
         src, trg = x
 
-        src = self.encode_src(src)
+        src_pad_mask = ~src["attention_mask"].bool()
+        src_tokens = src["input_ids"].permute(1, 0)
 
-        out = self.decode_trg(trg=trg, memory=src)
+        src = self.embeddings(src_tokens)
 
-        return out
+        src = self.pos_encoder(src)
+
+        src = self.transformer.encoder(src, src_key_padding_mask=src_pad_mask)
+
+        src = self.pos_encoder(src)
+
+        # TADA
+
+        trg_pad_mask = ~trg["attention_mask"].bool()
+        trg = trg["input_ids"].permute(1, 0)
+
+        out_sequence_len, batch_size = trg.size(0), trg.size(1)
+
+        trg = self.embeddings(trg)
+
+        trg = self.pos_encoder(trg)
+
+        trg_mask = gen_trg_mask(out_sequence_len, trg.device)
+
+        out = self.transformer.decoder(
+            tgt=trg, memory=src, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
+        )
+
+        outDistribution = out.permute(1, 0, 2)
+
+        outDistribution = self.linear(outDistribution)
+
+        finalDistribution = self.copying(src, src_tokens,
+                                         src_pad_mask, out, outDistribution)
+
+        return finalDistribution
 
     def training_step(self, batch, batch_idx):
         return self._step(batch, batch_idx, name="train")

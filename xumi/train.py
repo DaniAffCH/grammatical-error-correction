@@ -89,7 +89,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", default=16)
+    parser.add_argument("--batch_size", default=2)
     parser.add_argument("--epochs", default=2000)
 
     parser.add_argument(
@@ -134,13 +134,8 @@ if __name__ == "__main__":
         dropout=0.1
     )
 
-    checkpoint_callback = ModelCheckpoint(
-        monitor="valid_acc", mode="max", dirpath=base_path, filename="checker"
-    )
-
     trainer = pl.Trainer(
         max_epochs=epochs,
-        gpus=1,
-        callbacks=[checkpoint_callback],
+
     )
     trainer.fit(model, train_loader, val_loader)
