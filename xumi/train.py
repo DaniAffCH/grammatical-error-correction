@@ -106,7 +106,7 @@ if __name__ == "__main__":
     tokenizer = tokenizerSetup()
 
     train_data = Dataset(path="../src/dataset/train.csv", tokenizer=tokenizer)
-    val_data = Dataset(path="../src/dataset/train.csv", tokenizer=tokenizer)
+    val_data = Dataset(path="../src/dataset/eval.csv", tokenizer=tokenizer)
 
     print("len(train_data)", len(train_data))
     print("len(val_data)", len(val_data))

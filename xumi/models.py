@@ -13,6 +13,13 @@ def gen_trg_mask(length, device):
     )
 
 
+def create_padding_mask(tensor, pad_idx):
+
+    padding_mask = (tensor == pad_idx).transpose(0, 1)
+
+    return padding_mask
+
+
 def masked_accuracy(y_true: torch.Tensor, y_pred: torch.Tensor, pad_idx):
     mask = y_true != pad_idx
     y_true = torch.masked_select(y_true, mask)
@@ -188,7 +195,7 @@ class Seq2Seq(pl.LightningModule):
 
         src_pad_mask = ~src["attention_mask"].bool()
         src_tokens = src["input_ids"].permute(1, 0)
-
+        assert create_padding_mask(src_tokens, self.pad_idx) == src_pad_mask
         src = self.embeddings(src_tokens)
 
         src = self.pos_encoder(src)
@@ -201,6 +208,8 @@ class Seq2Seq(pl.LightningModule):
 
         trg_pad_mask = ~trg["attention_mask"].bool()
         trg = trg["input_ids"].permute(1, 0)
+
+        assert create_padding_mask(trg_mask, self.pad_idx) == trg_pad_mask
 
         out_sequence_len, batch_size = trg.size(0), trg.size(1)
 
@@ -243,8 +252,6 @@ class Seq2Seq(pl.LightningModule):
         trg_out = trg["input_ids"][:, 1:]
 
         y_hat = self((src, trg_in))
-
-        # print("\n\n\n")
 
         y_hat = y_hat.view(-1, y_hat.size(2))
         y = trg_out.contiguous().view(-1)
