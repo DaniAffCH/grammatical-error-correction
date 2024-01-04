@@ -5,12 +5,13 @@ import numpy as np
 
 
 class JflegDataset(Dataset):
-    def __init__(self, path, tokenizer, max_len=128) -> None:
+    def __init__(self, path, tokenizer, phase, max_len=128) -> None:
         super().__init__()
         self.data = pd.read_csv(path)
         self.tokenizer = tokenizer
         self._preprocess()
         self.max_len = max_len
+        self.phase = phase
 
     def _preprocess(self):
         self.data = self.data.groupby(
@@ -34,7 +35,9 @@ class JflegDataset(Dataset):
         input = self._process_sequence(input)
 
         target_text_list = self.data.iloc[index]["target"]
-        target_out = random.choice(target_text_list)
+
+        target_out = random.choice(
+            target_text_list) if self.phase == "train" else target_text_list[0]
         target_out = self._process_sequence(target_out)
 
         return input, target_out

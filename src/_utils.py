@@ -1,6 +1,5 @@
 from enum import Enum
 from transformers import GPT2Tokenizer
-import torch
 
 
 class SpecialToken(Enum):
@@ -22,14 +21,6 @@ def tokenizerSetup():
     tokenizer.eos_token = str(SpecialToken.END)
 
     return tokenizer
-
-
-def masked_accuracy(y_true: torch.Tensor, y_pred: torch.Tensor, pad_idx):
-    mask = y_true != pad_idx
-    y_true = torch.masked_select(y_true, mask)
-    y_pred = torch.masked_select(y_pred, mask)
-
-    return (y_true == y_pred).double().mean()
 
 
 def moveToDevice(val, device):

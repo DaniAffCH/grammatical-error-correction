@@ -7,29 +7,6 @@ from torch.nn import Linear
 from torch.nn import functional as F
 
 
-def gen_trg_mask(length, device):
-    return torch.triu(
-        torch.ones(length, length, device=device) * float("-inf"), diagonal=1
-    )
-
-
-def create_padding_mask(tensor, pad_idx):
-
-    padding_mask = (tensor == pad_idx).transpose(0, 1)
-
-    return padding_mask
-
-
-def masked_accuracy(y_true: torch.Tensor, y_pred: torch.Tensor, pad_idx):
-    mask = y_true != pad_idx
-    y_true = torch.masked_select(y_true, mask)
-    y_pred = torch.masked_select(y_pred, mask)
-
-    acc = (y_true == y_pred).double().mean()
-
-    return acc
-
-
 class PositionalEncoding(nn.Module):
     #  https://pytorch.org/tutorials/beginner/transformer_tutorial.html
 
@@ -95,8 +72,10 @@ class CopyAttention(nn.Module):
 
         extendedOutDistribution = torch.zeros(outDistribution.size(
             0), outDistribution.size(1), src_tokens.size(1)).float()
+
         if src_tokens.device.type == 'cuda':
             extendedOutDistribution = extendedOutDistribution.cuda()
+
         outDistribution = torch.cat(
             [outDistribution, extendedOutDistribution], dim=-1)
 
@@ -114,7 +93,7 @@ class Seq2Seq(pl.LightningModule):
         tok,
         out_vocab_size,
         pad_idx,
-        channels=256,
+        embedding_size=256,
         dropout=0.1,
         lr=1e-4,
     ):
@@ -126,16 +105,21 @@ class Seq2Seq(pl.LightningModule):
         self.out_vocab_size = out_vocab_size
 
         self.embeddings = TokenEmbedding(
-            vocab_size=self.out_vocab_size, emb_size=channels
+            vocab_size=self.out_vocab_size, emb_size=embedding_size
         )
 
-        self.copying = CopyAttention(channels)
+        self.copying = CopyAttention(embedding_size)
 
         self.pos_encoder = PositionalEncoding(
-            d_model=channels, dropout=dropout)
+            d_model=embedding_size, dropout=dropout)
+
+        self.encodeEmbed = nn.Sequential(
+            self.embeddings,
+            self.pos_encoder
+        )
 
         self.transformer = torch.nn.Transformer(
-            d_model=channels,
+            d_model=embedding_size,
             nhead=4,
             num_encoder_layers=6,
             num_decoder_layers=6,
@@ -143,105 +127,84 @@ class Seq2Seq(pl.LightningModule):
             dropout=dropout,
         )
 
-        self.linear = Linear(channels, out_vocab_size)
+        self.linear = Linear(embedding_size, out_vocab_size)
 
         self.do = nn.Dropout(p=self.dropout)
         self.tok = tok
 
     def init_weights(self) -> None:
-        init_range = 0.1
-        self.embeddings.weight.data.uniform_(-init_range, init_range)
+        self.embeddings.weight.data.uniform_(-0.1, 0.1)
         self.linear.bias.data.zero_()
-        self.linear.weight.data.uniform_(-init_range, init_range)
+        self.linear.weight.data.uniform_(-0.1, 0.1)
 
-    def encode_src(self, src):
-        src_pad_mask = ~src["attention_mask"].bool()
-        src = src["input_ids"].permute(1, 0)
+    def preprocessInput(self, input):
+        return input["input_ids"].permute(1, 0), ~input["attention_mask"].bool()
 
-        src = self.embeddings(src)
-
-        src = self.pos_encoder(src)
-
-        src = self.transformer.encoder(src, src_key_padding_mask=src_pad_mask)
-
-        src = self.pos_encoder(src)
-
-        return src
-
-    def decode_trg(self, trg, memory):
-        trg_pad_mask = ~trg["attention_mask"].bool()
-        trg = trg["input_ids"].permute(1, 0)
-
-        out_sequence_len, batch_size = trg.size(0), trg.size(1)
-
-        trg = self.embeddings(trg)
-
-        trg = self.pos_encoder(trg)
-
-        trg_mask = gen_trg_mask(out_sequence_len, trg.device)
-
-        out = self.transformer.decoder(
-            tgt=trg, memory=memory, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
+    def generateTargetMask(self, length, device):
+        return torch.triu(
+            torch.ones(length, length, device=device) * float("-inf"), diagonal=1
         )
 
-        out = out.permute(1, 0, 2)
+    def maskedAccuracy(self, y, y_hat, pad_idx):
+        mask = y != pad_idx
 
-        out = self.linear(out)
+        return (torch.masked_select(y, mask) ==
+                torch.masked_select(y_hat, mask)).double().mean()
 
-        return out
+    def forward(self, src, trg):
 
-    def forward(self, x):
-        src, trg = x
+        src_tokens, src_pad_mask = self.preprocessInput(src)
+        trg, trg_pad_mask = self.preprocessInput(trg)
 
-        src_pad_mask = ~src["attention_mask"].bool()
-        src_tokens = src["input_ids"].permute(1, 0)
-        assert create_padding_mask(src_tokens, self.pad_idx) == src_pad_mask
-        src = self.embeddings(src_tokens)
-
-        src = self.pos_encoder(src)
-
+        # encoder
+        src = self.encodeEmbed(src_tokens)
         src = self.transformer.encoder(src, src_key_padding_mask=src_pad_mask)
 
         src = self.pos_encoder(src)
 
-        # TADA
-
-        trg_pad_mask = ~trg["attention_mask"].bool()
-        trg = trg["input_ids"].permute(1, 0)
-
-        assert create_padding_mask(trg_mask, self.pad_idx) == trg_pad_mask
-
-        out_sequence_len, batch_size = trg.size(0), trg.size(1)
-
-        trg = self.embeddings(trg)
-
-        trg = self.pos_encoder(trg)
-
-        trg_mask = gen_trg_mask(out_sequence_len, trg.device)
+        # decoder
+        trg = self.encodeEmbed(trg)
+        trg_mask = self.generateTargetMask(trg.size(0), trg.device)
 
         out = self.transformer.decoder(
             tgt=trg, memory=src, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
         )
 
+        # head
         outDistribution = out.permute(1, 0, 2)
-
         outDistribution = self.linear(outDistribution)
 
+        # copy
         finalDistribution = self.copying(src, src_tokens,
                                          src_pad_mask, out, outDistribution)
 
         return finalDistribution
 
     def training_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, name="train")
+        y_hat, trg_out = self.feedforward(batch, batch_idx)
+
+        y_hat = y_hat.view(-1, y_hat.size(2))
+        y = trg_out.contiguous().view(-1)
+
+        loss = F.cross_entropy(y_hat, y, ignore_index=self.pad_idx)
+
+        return loss
 
     def validation_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, name="valid")
 
-    def test_step(self, batch, batch_idx):
-        return self._step(batch, batch_idx, name="test")
+        y_hat, trg_out = self.feedforward(batch, batch_idx)
 
-    def _step(self, batch, batch_idx, name="train"):
+        y_hat = y_hat.view(-1, y_hat.size(2))
+        y = trg_out.contiguous().view(-1)
+
+        loss = F.cross_entropy(y_hat, y, ignore_index=self.pad_idx)
+
+        _, predicted = torch.max(y_hat, 1)
+        acc = self.maskedAccuracy(y, predicted, pad_idx=self.pad_idx)
+
+        return loss
+
+    def feedforward(self, batch, batch_idx):
         src, trg = batch
 
         trg_in = {
@@ -251,30 +214,9 @@ class Seq2Seq(pl.LightningModule):
 
         trg_out = trg["input_ids"][:, 1:]
 
-        y_hat = self((src, trg_in))
+        y_hat = self(src, trg_in)
 
-        y_hat = y_hat.view(-1, y_hat.size(2))
-        y = trg_out.contiguous().view(-1)
-
-        loss = F.cross_entropy(y_hat, y, ignore_index=self.pad_idx)
-
-        _, predicted = torch.max(y_hat, 1)
-        acc = masked_accuracy(y, predicted, pad_idx=self.pad_idx)
-        print(f"{loss=} {acc=}")
-        return loss
+        return y_hat, trg_out
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.lr)
-
-
-if __name__ == "__main__":
-    n_classes = 100
-
-    source = torch.randint(low=0, high=n_classes, size=(20, 16))
-    target = torch.randint(low=0, high=n_classes, size=(20, 32))
-
-    s2s = Seq2Seq(out_vocab_size=n_classes, pad_idx=0)
-
-    out = s2s((source, target))
-    print(out.size())
-    print(out)
+        return torch.optim.AdamW(self.parameters(), lr=self.lr)

@@ -34,7 +34,6 @@ def tokenizerSetup():
 
     return tokenizer
 
-
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, path, tokenizer, max_len=128) -> None:
         super().__init__()
@@ -74,16 +73,6 @@ class Dataset(torch.utils.data.Dataset):
         return self.tokenizer.decode(embedding, skip_special_tokens=False)
 
 
-def generate_batch(data_batch, pad_idx):
-    src, trg = [], []
-    for (src_item, trg_item) in data_batch:
-        src.append(src_item)
-        trg.append(trg_item)
-    src = pad_sequence(src, padding_value=pad_idx, batch_first=True)
-    trg = pad_sequence(trg, padding_value=pad_idx, batch_first=True)
-    return src, trg
-
-
 if __name__ == "__main__":
 
     import argparse
@@ -107,9 +96,6 @@ if __name__ == "__main__":
 
     train_data = Dataset(path="../src/dataset/train.csv", tokenizer=tokenizer)
     val_data = Dataset(path="../src/dataset/eval.csv", tokenizer=tokenizer)
-
-    print("len(train_data)", len(train_data))
-    print("len(val_data)", len(val_data))
 
     train_loader = DataLoader(
         train_data,

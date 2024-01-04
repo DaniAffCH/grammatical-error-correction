@@ -1,30 +1,23 @@
 from pathlib import Path
 
-import torch
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR
-from torch.optim import AdamW
-from torch.nn import CrossEntropyLoss
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 from models import S2S
 
-import tqdm
+import pytorch_lightning as pl
 
 from jflegDataset import JflegDataset
 import argparse
 
 from _utils import tokenizerSetup, SpecialToken
 
-from oneStep import trainOneStep
-
 
 def train(args):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     tokenizer = tokenizerSetup()
 
-    train_data = JflegDataset(args.train_dataset, tokenizer)
-    val_data = JflegDataset(args.eval_dataset, tokenizer)
+    train_data = JflegDataset(args.train_dataset, tokenizer, "train")
+    val_data = JflegDataset(args.eval_dataset, tokenizer, "val")
 
     train_loader = DataLoader(
         train_data,
@@ -41,20 +34,22 @@ def train(args):
     )
 
     model = S2S(
-        out_vocab_size=tokenizer.vocab_size + len(SpecialToken),
+        tokenizer,
+        out_vocab_size=tokenizer.vocab_size+len(SpecialToken),
+        pad_idx=tokenizer("[PAD]")["input_ids"][0],
+        lr=1e-6,
         dropout=0.1
-    ).to(device)
+    )
 
-    optimizer = AdamW(model.parameters(), lr=args.learning_rate)
-    lr_scheduler = StepLR(optimizer, args.epochs//10)
+    earlyStop = EarlyStopping(monitor="val_loss", mode="min")
 
-    criterion = CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
+    trainer = pl.Trainer(
+        max_epochs=args.epochs,
+        default_root_dir=args.output_path,
+        callbacks=[earlyStop]
+    )
 
-    for epoch in tqdm.tqdm(range(args.epochs)):
-        loss, acc = trainOneStep(model, train_loader, device,
-                                 optimizer, criterion, tokenizer, lr_scheduler)
-
-        print(f"#{epoch} {loss=} {acc=}")
+    trainer.fit(model, train_loader, val_loader)
 
 
 def setParser(parser):
@@ -67,7 +62,7 @@ def setParser(parser):
     parser.add_argument(
         "--eval_dataset", default=f"{abspath}/dataset/eval.csv")
     parser.add_argument(
-        "--output_path", default=f"{abspath}/output/mod_ck.pt")
+        "--output_path", default=f"{abspath}/output")
     parser.add_argument(
         "--embedding_size", type=int, default=768)
     parser.add_argument(
