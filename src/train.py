@@ -46,7 +46,8 @@ def train(args):
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         default_root_dir=args.output_path,
-        callbacks=[earlyStop]
+        callbacks=[earlyStop],
+        log_every_n_steps=5
     )
 
     trainer.fit(model, train_loader, val_loader)
