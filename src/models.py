@@ -226,4 +226,4 @@ class S2S(pl.LightningModule):
     def configure_optimizers(self):
         opt = torch.optim.AdamW(self.parameters(), lr=self.lr)
         sched = torch.optim.lr_scheduler.StepLR(opt, 1000)
-        return opt, sched
+        return {"optimizer": opt, "lr_scheduler": sched}
