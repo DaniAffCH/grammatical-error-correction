@@ -99,6 +99,8 @@ class S2S(pl.LightningModule):
     ):
         super().__init__()
 
+        self.save_hyperparameters()
+
         self.lr = lr
         self.pad_idx = pad_idx
         self.dropout = dropout
