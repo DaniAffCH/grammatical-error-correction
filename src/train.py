@@ -41,7 +41,7 @@ def train(args):
         dropout=0.1
     )
 
-    earlyStop = EarlyStopping(monitor="val_loss", mode="min")
+    earlyStop = EarlyStopping(monitor="val_loss", mode="min", patience=50)
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -49,8 +49,11 @@ def train(args):
         callbacks=[earlyStop],
         log_every_n_steps=5
     )
-
-    trainer.fit(model, train_loader, val_loader)
+    if args.resume_checkpoint:
+        trainer.fit(model, train_loader, val_loader,
+                    ckpt_path=args.resume_checkpoint)
+    else:
+        trainer.fit(model, train_loader, val_loader)
 
 
 def setParser(parser):
@@ -68,6 +71,8 @@ def setParser(parser):
         "--embedding_size", type=int, default=768)
     parser.add_argument(
         "--learning_rate", type=float, default=1e-6)
+    parser.add_argument(
+        "--resume_checkpoint", type=str, default=None)
 
 
 if __name__ == "__main__":
