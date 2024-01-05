@@ -21,11 +21,11 @@ class JflegDataset(Dataset):
 
     def _process_sequence(self, sequence):
         sequence = f"{self.tokenizer.bos_token} {sequence} {self.tokenizer.eos_token}"
-        result = self.tokenizer(sequence, return_tensors="pt",
-                                padding="max_length", truncation=True, max_length=self.max_len)
+        # result = self.tokenizer(sequence, return_tensors="pt",
+        #                       padding="max_length", truncation=True, max_length=self.max_len)
 
-        result = {key: value.squeeze() for key, value in result.items()}
-        return result
+        # result = {key: value.squeeze() for key, value in result.items()}
+        return sequence
 
     def __len__(self):
         return self.data.size//2
@@ -44,3 +44,12 @@ class JflegDataset(Dataset):
 
     def decode(self, embedding):
         return self.tokenizer.decode(embedding, skip_special_tokens=False)
+
+
+def collate(data, tokenizer):
+
+    x, y = zip(*data)
+    x = tokenizer(x, return_tensors="pt", padding=True)
+    y = tokenizer(y, return_tensors="pt", padding=True)
+
+    return x, y

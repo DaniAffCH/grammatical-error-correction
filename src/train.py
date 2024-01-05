@@ -8,8 +8,10 @@ from models import S2S
 
 import pytorch_lightning as pl
 
-from jflegDataset import JflegDataset
+from jflegDataset import JflegDataset, collate
 import argparse
+
+from functools import partial
 
 from _utils import tokenizerSetup, SpecialToken
 import os
@@ -26,6 +28,8 @@ def train(args):
         batch_size=args.batch_size,
         num_workers=10,
         shuffle=True,
+        collate_fn=partial(
+            collate, tokenizer=tokenizer)
     )
 
     val_loader = DataLoader(
@@ -33,6 +37,8 @@ def train(args):
         batch_size=args.batch_size,
         num_workers=10,
         shuffle=True,
+        collate_fn=partial(
+            collate, tokenizer=tokenizer)
     )
 
     model = S2S(
@@ -46,7 +52,7 @@ def train(args):
     earlyStop = EarlyStopping(monitor="val_loss", mode="min", patience=50)
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(args.output_path, "checkpoints")
+        dirpath=os.path.join(args.output_path, "checkpoints"),
         filename='model-{epoch:02d}-{val_loss:.2f}',
         monitor='val_loss',
         mode='min',
