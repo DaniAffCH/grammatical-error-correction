@@ -2,6 +2,7 @@ from pathlib import Path
 
 from torch.utils.data import DataLoader
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from models import S2S
 
@@ -11,6 +12,7 @@ from jflegDataset import JflegDataset
 import argparse
 
 from _utils import tokenizerSetup, SpecialToken
+import os
 
 
 def train(args):
@@ -43,10 +45,18 @@ def train(args):
 
     earlyStop = EarlyStopping(monitor="val_loss", mode="min", patience=50)
 
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=os.path.join(args.output_path, "checkpoints")
+        filename='model-{epoch:02d}-{val_loss:.2f}',
+        monitor='val_loss',
+        mode='min',
+        save_top_k=1
+    )
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         default_root_dir=args.output_path,
-        callbacks=[earlyStop],
+        callbacks=[earlyStop, checkpoint_callback],
         log_every_n_steps=5
     )
     if args.resume_checkpoint:
