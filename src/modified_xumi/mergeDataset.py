@@ -56,7 +56,6 @@ class MergeDataset(torch.utils.data.Dataset):
         return text
 
     def _processSample(self, sample):
-        sample = f"{SpecialToken.BEGIN} {sample} {SpecialToken.END}"
         sample = self.tokenizer.encode(sample).ids
         return torch.tensor(sample[:self.max_len], dtype=torch.long)
 
