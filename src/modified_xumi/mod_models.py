@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from torch.nn import Linear
 from torch.nn import functional as F
+from _utils import SpecialToken
 
 
 class PositionalEncoding(nn.Module):
@@ -87,12 +88,11 @@ class CopyAttention(nn.Module):
         return compositeDistribution
 
 
-class Seq2Seq(pl.LightningModule):
+class S2S(pl.LightningModule):
     def __init__(
         self,
-        tok,
+        tokenizer,
         out_vocab_size,
-        pad_idx,
         embedding_size=256,
         dropout=0.1,
         lr=1e-4,
@@ -100,7 +100,6 @@ class Seq2Seq(pl.LightningModule):
         super().__init__()
 
         self.lr = lr
-        self.pad_idx = pad_idx
         self.dropout = dropout
         self.out_vocab_size = out_vocab_size
 
@@ -113,7 +112,7 @@ class Seq2Seq(pl.LightningModule):
         self.pos_encoder = PositionalEncoding(
             d_model=embedding_size, dropout=dropout)
 
-        self.encodeEmbed = nn.Sequential(
+        self.embedEncode = nn.Sequential(
             self.embeddings,
             self.pos_encoder
         )
@@ -121,53 +120,61 @@ class Seq2Seq(pl.LightningModule):
         self.transformer = torch.nn.Transformer(
             d_model=embedding_size,
             nhead=4,
-            num_encoder_layers=6,
-            num_decoder_layers=6,
-            dim_feedforward=1024,
-            dropout=dropout,
+            num_encoder_layers=8,
+            num_decoder_layers=8,
+            dim_feedforward=2048,
+            dropout=dropout
         )
 
         self.linear = Linear(embedding_size, out_vocab_size)
 
         self.do = nn.Dropout(p=self.dropout)
-        self.tok = tok
+        self.tokenizer = tokenizer
+        self.pad_idx = tokenizer.token_to_id(str(SpecialToken.PADDING))
 
     def init_weights(self) -> None:
-        self.embeddings.weight.data.uniform_(-0.1, 0.1)
+        init_range = 0.1
+        self.embeddings.weight.data.uniform_(-init_range, init_range)
         self.linear.bias.data.zero_()
-        self.linear.weight.data.uniform_(-0.1, 0.1)
+        self.linear.weight.data.uniform_(-init_range, init_range)
 
-    def preprocessInput(self, input):
-        return input["input_ids"].permute(1, 0), ~input["attention_mask"].bool()
-
-    def generateTargetMask(self, length, device):
+    def gen_trg_mask(self, length, device):
         return torch.triu(
             torch.ones(length, length, device=device) * float("-inf"), diagonal=1
         )
 
-    def maskedAccuracy(self, y, y_hat, pad_idx):
-        mask = y != pad_idx
+    def create_padding_mask(self, tensor, pad_idx):
+        return (tensor == pad_idx).transpose(0, 1)
 
-        return (torch.masked_select(y, mask) ==
-                torch.masked_select(y_hat, mask)).double().mean()
+    def masked_accuracy(self, y_true, y_pred):
+        mask = y_true != self.pad_idx
+
+        return (torch.masked_select(y_true, mask) ==
+                torch.masked_select(y_pred, mask)).double().mean()
 
     def forward(self, src, trg):
 
-        src_tokens, src_pad_mask = self.preprocessInput(src)
-        trg, trg_pad_mask = self.preprocessInput(trg)
+        src_tokens = src.permute(1, 0)
+        trg_tokens = trg.permute(1, 0)
+
+        # masks
+        src_padding_mask = self.create_padding_mask(src_tokens, self.pad_idx)
+        trg_padding_mask = self.create_padding_mask(trg_tokens, self.pad_idx)
+        trg_lookahead_mask = self.gen_trg_mask(
+            trg_tokens.size(0), trg_tokens.device)
 
         # encoder
-        src = self.encodeEmbed(src_tokens)
-        src = self.transformer.encoder(src, src_key_padding_mask=src_pad_mask)
+        src = self.embedEncode(src_tokens)
+        src = self.transformer.encoder(
+            src, src_key_padding_mask=src_padding_mask)
 
         src = self.pos_encoder(src)
 
         # decoder
-        trg = self.encodeEmbed(trg)
-        trg_mask = self.generateTargetMask(trg.size(0), trg.device)
+        trg = self.embedEncode(trg_tokens)
 
         out = self.transformer.decoder(
-            tgt=trg, memory=src, tgt_mask=trg_mask, tgt_key_padding_mask=trg_pad_mask
+            tgt=trg, memory=src, tgt_mask=trg_lookahead_mask, tgt_key_padding_mask=trg_padding_mask
         )
 
         # head
@@ -176,7 +183,7 @@ class Seq2Seq(pl.LightningModule):
 
         # copy
         finalDistribution = self.copying(src, src_tokens,
-                                         src_pad_mask, out, outDistribution)
+                                         src_padding_mask, out, outDistribution)
 
         return finalDistribution
 
@@ -187,6 +194,8 @@ class Seq2Seq(pl.LightningModule):
         y = trg_out.contiguous().view(-1)
 
         loss = F.cross_entropy(y_hat, y, ignore_index=self.pad_idx)
+
+        self.log("training_loss", loss, prog_bar=True)
 
         return loss
 
@@ -200,23 +209,21 @@ class Seq2Seq(pl.LightningModule):
         loss = F.cross_entropy(y_hat, y, ignore_index=self.pad_idx)
 
         _, predicted = torch.max(y_hat, 1)
-        acc = self.maskedAccuracy(y, predicted, pad_idx=self.pad_idx)
+        acc = self.masked_accuracy(y, predicted)
+
+        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_accuracy", acc, prog_bar=True)
 
         return loss
 
     def feedforward(self, batch, batch_idx):
         src, trg = batch
-
-        trg_in = {
-            "input_ids": trg["input_ids"][:, :-1],
-            "attention_mask": trg["attention_mask"][:, :-1]
-        }
-
-        trg_out = trg["input_ids"][:, 1:]
-
+        trg_in, trg_out = trg[:, :-1], trg[:, 1:]
         y_hat = self(src, trg_in)
 
         return y_hat, trg_out
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=self.lr)
+        opt = torch.optim.AdamW(self.parameters(), lr=self.lr)
+        sched = torch.optim.lr_scheduler.StepLR(opt, 1000)
+        return {"optimizer": opt, "lr_scheduler": sched}

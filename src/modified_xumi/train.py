@@ -1,27 +1,42 @@
+from functools import partial
+from pathlib import Path
+
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
+from tokenizers import Tokenizer
+from torch.utils.data import DataLoader
+
+
+from mergeDataset import MergeDataset
+
 from pathlib import Path
 
 from torch.utils.data import DataLoader
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from models import S2S
+from mod_models import S2S
 
 import pytorch_lightning as pl
 
-from jflegDataset import JflegDataset, collate
 import argparse
 
 from functools import partial
 
-from _utils import tokenizerSetup, SpecialToken
 import os
+
+from _utils import collate
+
+import wandb
 
 
 def train(args):
-    tokenizer = tokenizerSetup()
-    
-    train_data = JflegDataset(args.train_dataset, tokenizer, "train")
-    val_data = JflegDataset(args.eval_dataset, tokenizer, "val")
+    tokenizer = Tokenizer.from_file(args.tokenizer_path)
+    # TODO: no hardcode
+    train_data = MergeDataset(syntheticPath="dataset/wikisent_train.csv",
+                              jflegPath="dataset/train.csv", tokenizer=tokenizer)
+    val_data = MergeDataset(syntheticPath="dataset/wikisent_eval.csv",
+                            jflegPath="dataset/eval.csv", tokenizer=tokenizer, deterministic=True)
 
     train_loader = DataLoader(
         train_data,
@@ -41,15 +56,12 @@ def train(args):
             collate, tokenizer=tokenizer)
     )
 
-    model = S2S(
-        tokenizer,
-        out_vocab_size=tokenizer.vocab_size+len(SpecialToken),
-        pad_idx=tokenizer("[PAD]")["input_ids"][0],
-        lr=1e-6,
-        dropout=0.1
-    )
+    model = S2S(tokenizer,
+                tokenizer.get_vocab_size(),
+                lr=1e-6,
+                dropout=0.1)
 
-    earlyStop = EarlyStopping(monitor="val_loss", mode="min", patience=50)
+    earlyStop = EarlyStopping(monitor="val_loss", mode="min", patience=3)
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=os.path.join(args.output_path, "checkpoints"),
@@ -59,12 +71,19 @@ def train(args):
         save_top_k=1
     )
 
+    wandb_logger = pl.loggers.WandbLogger(
+        project=args.wandb_name, log_model=True)
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         default_root_dir=args.output_path,
         callbacks=[earlyStop, checkpoint_callback],
-        log_every_n_steps=5
+        log_every_n_steps=5,
+        accelerator='gpu',
+        devices=1,
+        logger=wandb_logger
     )
+
     if args.resume_checkpoint:
         trainer.fit(model, train_loader, val_loader,
                     ckpt_path=args.resume_checkpoint)
@@ -75,12 +94,16 @@ def train(args):
 def setParser(parser):
     abspath = Path(__file__).absolute().parents[0]
 
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=160)
     parser.add_argument("--epochs", type=int, default=2000)
     parser.add_argument(
-        "--train_dataset", default=f"{abspath}/dataset/train.csv")
+        "--train_jfleg_dataset", default=f"{abspath}/dataset/train.csv")
     parser.add_argument(
-        "--eval_dataset", default=f"{abspath}/dataset/eval.csv")
+        "--eval_jfleg_dataset", default=f"{abspath}/dataset/eval.csv")
+    parser.add_argument(
+        "--train_synthetic_dataset", default=f"{abspath}/dataset/wikisent_train.csv")
+    parser.add_argument(
+        "--eval_synthetic_dataset", default=f"{abspath}/dataset/wikisent_eval.csv")
     parser.add_argument(
         "--output_path", default=f"{abspath}/output")
     parser.add_argument(
@@ -89,6 +112,10 @@ def setParser(parser):
         "--learning_rate", type=float, default=1e-6)
     parser.add_argument(
         "--resume_checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--wandb_name", type=str, default="grammatical-error-correction")
+    parser.add_argument(
+        "--tokenizer_path", type=str, default=f"{abspath}/resources/tokenizer.json")
 
 
 if __name__ == "__main__":

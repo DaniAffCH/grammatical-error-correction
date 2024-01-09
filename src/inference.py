@@ -1,8 +1,9 @@
 from models import S2S
 import torch
+from functools import partial
 from _utils import tokenizerSetup, SpecialToken
 
-from jflegDataset import JflegDataset
+from jflegDataset import JflegDataset, collate
 from torch.utils.data import DataLoader
 
 
@@ -21,49 +22,44 @@ def inference():
         batch_size=1,
         num_workers=10,
         shuffle=True,
+        collate_fn=partial(
+            collate, tokenizer=tokenizer)
     )
 
     batch = next(iter(train_loader))
 
-    y_hat, _ = model.feedforward(batch, 0)
-    y_hat = y_hat.squeeze()
+    transformed_text = "For not use car ."
 
-    y_hat = y_hat.argmax(-1)
-    print(tokenizer.decode(y_hat, skip_special_tokens=False))
-    exit(0)
+    src = tokenizer(transformed_text, return_tensors="pt", padding=True)
 
-    max_length = 128
+    trg = {
+        "input_ids": torch.full((src["input_ids"].shape[0], 5), tokenizer.pad_token_id, dtype=torch.long),
+        "attention_mask": torch.zeros((src["input_ids"].shape[0], 5))
+    }
 
-    sequence = batch[0]["input_ids"]
-    print(sequence)
-    sequence = f"{tokenizer.bos_token} {sequence} {tokenizer.eos_token}"
-    src = tokenizer(sequence, return_tensors="pt",
-                    padding="max_length", truncation=True, max_length=max_length)
+    trg["input_ids"][:, 0] = tokenizer.bos_token_id
+    trg["attention_mask"][:, 0] = 1
 
-    trg_str = tokenizer.bos_token
-    trg = tokenizer(trg_str, return_tensors="pt",
-                    padding="max_length", truncation=True, max_length=max_length)
+    for i in range(1, 5):
+        trg_in = dict()
+        trg_in["input_ids"] = trg["input_ids"][:, :i]
+        trg_in["attention_mask"] = trg["attention_mask"][:, :i]
 
-    for i in range(max_length):
-        out = model(src, trg)
-        out = out.argmax(2).squeeze()
-        # idk maybe of 0?
-        out_str = tokenizer.decode(out[i], skip_special_tokens=False)
-        print("PREDICTED:")
-        print(out_str)
-        print()
+        output = model(src, trg_in)
+        output = output.argmax(2)
 
-        is_end = out == tokenizer.eos_token_id
-        is_end, _ = is_end.max(-1)
-        if is_end.sum() == out.shape[0]:
+        is_end = output == tokenizer.eos_token_id
+        is_end, _ = is_end.max(1)
+        if is_end.sum() == output.shape[0]:
             break
 
-        trg_str = f"{trg_str}{out_str}"
-        trg = tokenizer(trg_str, return_tensors="pt",
-                        padding="max_length", truncation=True, max_length=max_length)
-        print("TARGET:")
-        print(trg_str)
-        print()
+        next_vals = output[:, -1]
+        trg["input_ids"][:, i] = next_vals
+        trg["attention_mask"][:, i] = 1
+
+    trg = trg["input_ids"].squeeze().numpy()
+
+    print(tokenizer.decode(trg))
 
 
 if __name__ == "__main__":
